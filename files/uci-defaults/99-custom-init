@@ -1,0 +1,11 @@
+
+# Log to the system log and echo if needed
+log_say()
+{
+    echo "${1}"
+    logger "${1}"
+}
+
+/etc/init.d/custom enable
+/etc/init.d/custom start
+log_say "Custom init service enabled and started"
