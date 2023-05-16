@@ -3,7 +3,7 @@
 START=95
 STOP=01
 
-boot() {
+start() {
     if [ -f /etc/rc.custom ]; then 
         bash /etc/rc.custom
     fi
