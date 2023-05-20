@@ -1,33 +1,51 @@
 #!/usr/bin/env bash
-# PrivateRouter rc.custom for updating and running our updater script
+# PrivateRouter rc.custom for keeping everything up to date
 
-# Set our nameserver to 1.1.1.1
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
+# Log to the system log and echo if needed
+log_say()
+{
+    SCRIPT_NAME=$(basename "$0")
+    echo "${SCRIPT_NAME}: ${1}"
+    logger "${SCRIPT_NAME}: ${1}"
+}
+
+# Perform the DNS resolution check
+if ! nslookup "privaterouter.com" >/dev/null 2>&1; then
+    log_say "Domain resolution failed. Setting DNS server to 1.1.1.1."
+
+    # Update resolv.conf with the new DNS server
+    echo "nameserver 1.1.1.1" > /etc/resolv.conf
+else
+    log_say "Domain resolution successful."
+fi
 
 # If nothing is set for REPO we set it to main
 if [ -z "${REPO}" ]; then
     REPO="main"
 fi
 
-# Verify we are connected to the Internet
-is_connected() {
-    ping -q -c3 1.1.1.1 >/dev/null 2>&1
-    return $?
+# Command to wait for Internet connection
+wait_for_internet() {
+    while ! ping -q -c3 1.1.1.1 >/dev/null 2>&1; do
+        log_say "Waiting for Internet connection..."
+        sleep 1
+    done
+    log_say "Internet connection established"
 }
 
-# Log to the system log and echo if needed
-log_say()
-{
-    echo "${1}"
-    logger "${1}"
-}
-
-# Check and wait for Internet connection
-while ! is_connected; do
-    log_say "Waiting for Internet connection..."
+# Command to wait for opkg to finish
+wait_for_opkg() {
+  while pgrep -x opkg >/dev/null; do
+    log_say "Waiting for opkg to finish..."
     sleep 1
-done
-log_say "Internet connection established"
+  done
+  log_say "opkg is released, our turn!"
+}
+
+# Wait for Internet connection
+wait_for_internet
+# Wait for opkg access
+wait_for_opkg
 
 # Check if there is an update to our rc.custom updater script
 log_say "Beginning rc.custom up to date check"

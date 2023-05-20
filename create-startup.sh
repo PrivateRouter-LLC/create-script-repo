@@ -2,5 +2,5 @@
 
 [ -f startup.tar.gz ] && rm startup.tar.gz
 pushd files
-tar cvfz ../startup.tar.gz .
+COPYFILE_DISABLE=1 tar cvfz ../startup.tar.gz .
 popd
