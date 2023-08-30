@@ -9,21 +9,6 @@ log_say()
     logger "${SCRIPT_NAME}: ${1}"
 }
 
-# Perform the DNS resolution check
-if ! nslookup "privaterouter.com" >/dev/null 2>&1; then
-    log_say "Domain resolution failed. Setting DNS server to 1.1.1.1."
-
-    # Update resolv.conf with the new DNS server
-    echo "nameserver 1.1.1.1" > /etc/resolv.conf
-else
-    log_say "Domain resolution successful."
-fi
-
-# If nothing is set for REPO we set it to main
-if [ -z "${REPO}" ]; then
-    REPO="main"
-fi
-
 # Command to wait for Internet connection
 wait_for_internet() {
     while ! ping -q -c3 1.1.1.1 >/dev/null 2>&1; do
@@ -42,10 +27,101 @@ wait_for_opkg() {
   log_say "opkg is released, our turn!"
 }
 
+# Get the name of the script without the path
+SCRIPT_NAME=$(basename "$0")
+
+# Count the number of running instances of the script (excluding the current one)
+NUM_INSTANCES=$(pgrep -f "${SCRIPT_NAME}" | grep -v "$$" | wc -l)
+
+# If more than one instance is found, exit
+if [ "$NUM_INSTANCES" -gt 1 ]; then
+    log_say "${SCRIPT_NAME} is already running, exiting."
+    exit 1
+fi
+
 # Wait for Internet connection
 wait_for_internet
 # Wait for opkg access
 wait_for_opkg
+
+# Force source our REPO variable from /root/.profile
+# This way it proliferates into all other scripts this one sources
+. /root/.profile
+
+log_say "***[ REPO is set to: ${REPO} ]***"
+
+# If nothing is set for REPO we set it to main
+if [ -z "${REPO}" ]; then
+    log_say "REPO is not set, setting to main"
+    REPO="main"
+fi
+
+# ----------------------- BEGIN RC.CUSTOM UPDATER
+
+# Check if there is an update to our rc.custom updater script
+log_say "Beginning rc.custom up to date check"
+
+HASH_STORE="/etc/config/.script-repo"
+UPDATE_NEEDED="0"
+
+CURRENT_HASH=$(
+    curl \
+        --silent "https://api.github.com/repos/PrivateRouter-LLC/script-repo/commits/${REPO}" | \
+        jq --raw-output '.sha'
+)
+
+if [ -f "${HASH_STORE}" ]; then
+    log_say "Script Repo Updater Found ${HASH_STORE}"
+    CHECK_HASH=$(cat ${HASH_STORE})
+    log_say "Script Repo Updater Check Hash ${CHECK_HASH}"
+    [[ "${CHECK_HASH}" != "${CURRENT_HASH}" ]] && {
+        log_say "Script Repo ${CHECK_HASH} != ${CURRENT_HASH}"
+        UPDATE_NEEDED="1"
+        echo "${CURRENT_HASH}" > "${HASH_STORE}"
+        log_say "Script Repo Updater Wrote ${CURRENT_HASH} > ${HASH_STORE}"
+    }
+else
+    log_say "Script Repo Updater ${HASH_STORE} did not exist"
+    touch "${HASH_STORE}"
+    echo "${CURRENT_HASH}" > "${HASH_STORE}"
+    log_say "Script Repo Updater Wrote ${CURRENT_HASH} > ${HASH_STORE}"
+    UPDATE_NEEDED="1"
+fi
+
+if [[ "${UPDATE_NEEDED}" == "1" ]]; then
+    log_say "Script Repo Update is needed from https://github.com/PrivateRouter-LLC/script-repo/raw/${REPO}/startup-scripts/startup.tar.gz"
+
+    [ -f "/tmp/startup.tar.gz" ] && { 
+        log_say "Script Repo Updater Removing old /tmp/startup.tar.gz"; 
+        rm -rf /tmp/startup.tar.gz; 
+    }
+
+    # Download our startup.tar.gz with our startup scripts and load them in
+    log_say "Downloading startup.tar.gz"
+    wget -q -O /tmp/startup.tar.gz "https://github.com/PrivateRouter-LLC/script-repo/raw/${REPO}/startup-scripts/startup.tar.gz"
+    log_say "Extracting startup.tar.gz"
+    tar -xzf /tmp/startup.tar.gz -C /etc
+    rm /tmp/startup.tar.gz
+    log_say "Startup scripts updated, rebooting in 10 seconds"
+    sleep 10
+    reboot
+else
+    log_say "Script Repo Update is not needed"
+fi # UPDATE_NEEDED check
+
+# ----------------------- END RC.CUSTOM UPDATER
+
+log_say "Fixing DNS (if needed) and installing required packages for opkg"
+
+# Perform the DNS resolution check
+if ! nslookup "privaterouter.com" >/dev/null 2>&1; then
+    log_say "Domain resolution failed. Setting DNS server to $dns_server."
+
+    # Update resolv.conf with the new DNS server
+    echo "nameserver 1.1.1.1" > /etc/resolv.conf
+else
+    log_say "Domain resolution successful."
+fi
 
 # Check if there is an update to our rc.custom updater script
 log_say "Beginning rc.custom up to date check"
@@ -57,7 +133,7 @@ UPDATER_LOCATION="/root/rc-custom"
 
 CURRENT_HASH=$(
     curl \
-        --silent https://api.github.com/repos/PrivateRouter-LLC/rc-custom/commits/${REPO} |
+        --silent "https://api.github.com/repos/PrivateRouter-LLC/rc-custom/commits/${REPO}" | \
         jq --raw-output '.sha'
 )
 
@@ -88,12 +164,18 @@ if [[ "${UPDATE_NEEDED}" == "1" || ! -d ${UPDATER_LOCATION} ]]; then
     }
 
     log_say "RC Custom Updater Cloning ${GIT_URL} into ${TMP_DIR}"
-    git clone --depth=1 "${GIT_URL}" "${TMP_DIR}"
+    git clone "${GIT_URL}" "${TMP_DIR}"
+    log_say "RC Custom Updater Checking out ${CURRENT_HASH}"
+    ORIG_PWD=$(pwd)
+    cd "${TMP_DIR}" && git reset --hard "${CURRENT_HASH}" && cd "${ORIG_PWD}"
 
     log_say "RC Custom Updater Cleaning up .git folder"
     rm -rf "${TMP_DIR}/.git"
 
-    [ -d "${UPDATER_LOCATION}" ] && { log_say "RC Custom Updater Removing old ${UPDATER_LOCATION}"; rm -rf "${UPDATER_LOCATION}"; }
+    [ -d "${UPDATER_LOCATION}" ] && { 
+        log_say "RC Custom Updater Removing old ${UPDATER_LOCATION}"; 
+        rm -rf "${UPDATER_LOCATION}"; 
+    }
 
     log_say "RC Custom Updater Moving ${TMP_DIR} to ${UPDATER_LOCATION}"
     mv "${TMP_DIR}" "${UPDATER_LOCATION}"
