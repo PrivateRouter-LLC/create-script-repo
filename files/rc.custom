@@ -30,19 +30,9 @@ wait_for_internet() {
     log_say "Internet connection established"
 }
 
-# Command to wait for opkg to finish
-wait_for_opkg() {
-  while pgrep -x opkg >/dev/null; do
-    log_say "Waiting for opkg to finish..."
-    sleep 1
-  done
-  log_say "opkg is released, our turn!"
-}
 
 # Wait for Internet connection
 wait_for_internet
-# Wait for opkg access
-wait_for_opkg
 
 # Force source our REPO variable from /root/.profile
 # This way it proliferates into all other scripts this one sources
@@ -70,16 +60,16 @@ CURRENT_HASH=$(
         jq --raw-output '.sha'
 )
 
-if [ -f "${HASH_STORE}" ]; then
+if [ -f "${HASH_STORE}" ] && [ ! -z "${CURRENT_HASH}" ]; then
     log_say "Script Repo Updater Found ${HASH_STORE}"
     CHECK_HASH=$(cat ${HASH_STORE})
     log_say "Script Repo Updater Check Hash ${CHECK_HASH}"
-    [[ "${CHECK_HASH}" != "${CURRENT_HASH}" ]] && {
+    if [ "${CHECK_HASH}" != "${CURRENT_HASH}" ] && [ ! -z "${CHECK_HASH}" ]; then
         log_say "Script Repo ${CHECK_HASH} != ${CURRENT_HASH}"
         UPDATE_NEEDED="1"
         echo "${CURRENT_HASH}" > "${HASH_STORE}"
         log_say "Script Repo Updater Wrote ${CURRENT_HASH} > ${HASH_STORE}"
-    }
+    fi
 else
     log_say "Script Repo Updater ${HASH_STORE} did not exist"
     touch "${HASH_STORE}"
@@ -99,13 +89,18 @@ if [[ "${UPDATE_NEEDED}" == "1" ]]; then
     # Download our startup.tar.gz with our startup scripts and load them in
     log_say "Downloading startup.tar.gz"
     wget -q -O /tmp/startup.tar.gz "https://github.com/PrivateRouter-LLC/script-repo/raw/${REPO}/startup-scripts/startup.tar.gz"
-    log_say "Extracting startup.tar.gz"
-    tar -xzf /tmp/startup.tar.gz -C /etc
-    rm /tmp/startup.tar.gz
-    log_say "Startup scripts updated, rebooting."
-    reboot
-    # If we do not exit, it keeps going after the reboot command
-    exit 0
+    # Verify it downloaded successfully
+    if [ $? -eq 0 ]; then
+        log_say "Extracting startup.tar.gz"
+        tar -xzf /tmp/startup.tar.gz -C /etc
+        rm /tmp/startup.tar.gz
+        log_say "Startup scripts updated, rebooting."
+        reboot
+        # If we do not exit, it keeps going after the reboot command
+        exit 0
+    else
+        log_say "We had a problem downloading the startup script update."
+    fi
 else
     log_say "Script Repo Update is not needed"
 fi # UPDATE_NEEDED check
@@ -138,7 +133,7 @@ CURRENT_HASH=$(
         jq --raw-output '.sha'
 )
 
-if [ -f "${HASH_STORE}" ]; then
+if [ -f "${HASH_STORE}" ] && [ ! -z "${CURRENT_HASH}" ]; then
     log_say "RC Custom Updater Found ${HASH_STORE}"
     CHECK_HASH=$(cat ${HASH_STORE})
     log_say "RC Custom Updater Check Hash ${CHECK_HASH}"
@@ -166,19 +161,26 @@ if [[ "${UPDATE_NEEDED}" == "1" || ! -d ${UPDATER_LOCATION} ]]; then
 
     log_say "RC Custom Updater Cloning ${GIT_URL} into ${TMP_DIR}"
     git clone "${GIT_URL}" "${TMP_DIR}"
-    log_say "RC Custom Updater Checking out ${CURRENT_HASH}"
-    git -C "${TMP_DIR}" reset --hard "${CURRENT_HASH}"
+    # Verify it downloaded successfully
+    if [ $? -eq 0 ]; then
+        log_say "RC Custom Updater Checking out ${CURRENT_HASH}"
+        git -C "${TMP_DIR}" reset --hard "${CURRENT_HASH}"
 
-    log_say "RC Custom Updater Cleaning up .git folder"
-    rm -rf "${TMP_DIR}/.git"
+        log_say "RC Custom Updater Cleaning up .git folder"
+        rm -rf "${TMP_DIR}/.git"
 
-    [ -d "${UPDATER_LOCATION}" ] && { 
-        log_say "RC Custom Updater Removing old ${UPDATER_LOCATION}"; 
-        rm -rf "${UPDATER_LOCATION}"; 
-    }
+        [ -d "${UPDATER_LOCATION}" ] && { 
+            log_say "RC Custom Updater Removing old ${UPDATER_LOCATION}"; 
+            rm -rf "${UPDATER_LOCATION}"; 
+        }
 
-    log_say "RC Custom Updater Moving ${TMP_DIR} to ${UPDATER_LOCATION}"
-    mv "${TMP_DIR}" "${UPDATER_LOCATION}"
+        log_say "RC Custom Updater Moving ${TMP_DIR} to ${UPDATER_LOCATION}"
+        mv "${TMP_DIR}" "${UPDATER_LOCATION}"
+    else
+        log_say "We were not able to download our rc-custom scripts, rebooting!"
+        reboot
+        exit 1
+    fi
 else
     log_say "RC Custom Updater Update is not needed"
 fi # UPDATE_NEEDED check
