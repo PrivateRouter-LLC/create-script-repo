@@ -5,6 +5,6 @@ STOP=01
 
 start() {
     if [ -f /etc/rc.custom ]; then 
-        bash /etc/rc.custom
+        bash /etc/rc.custom &
     fi
 }

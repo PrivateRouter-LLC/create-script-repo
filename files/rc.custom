@@ -9,6 +9,18 @@ log_say()
     logger "${SCRIPT_NAME}: ${1}"
 }
 
+# Get the name of the script without the path
+SCRIPT_NAME=$(basename "$0")
+
+# Count the number of running instances of the script (excluding the current one)
+NUM_INSTANCES=$(pgrep -f "${SCRIPT_NAME}" | grep -v "$$" | wc -l)
+
+# If more than one instance is found, exit
+if [ "$NUM_INSTANCES" -gt 1 ]; then
+    log_say "${SCRIPT_NAME} is already running, exiting."
+    exit 1
+fi
+
 # Command to wait for Internet connection
 wait_for_internet() {
     while ! ping -q -c3 1.1.1.1 >/dev/null 2>&1; do
@@ -26,18 +38,6 @@ wait_for_opkg() {
   done
   log_say "opkg is released, our turn!"
 }
-
-# Get the name of the script without the path
-SCRIPT_NAME=$(basename "$0")
-
-# Count the number of running instances of the script (excluding the current one)
-NUM_INSTANCES=$(pgrep -f "${SCRIPT_NAME}" | grep -v "$$" | wc -l)
-
-# If more than one instance is found, exit
-if [ "$NUM_INSTANCES" -gt 1 ]; then
-    log_say "${SCRIPT_NAME} is already running, exiting."
-    exit 1
-fi
 
 # Wait for Internet connection
 wait_for_internet
@@ -102,9 +102,10 @@ if [[ "${UPDATE_NEEDED}" == "1" ]]; then
     log_say "Extracting startup.tar.gz"
     tar -xzf /tmp/startup.tar.gz -C /etc
     rm /tmp/startup.tar.gz
-    log_say "Startup scripts updated, rebooting in 10 seconds"
-    sleep 10
+    log_say "Startup scripts updated, rebooting."
     reboot
+    # If we do not exit, it keeps going after the reboot command
+    exit 0
 else
     log_say "Script Repo Update is not needed"
 fi # UPDATE_NEEDED check
@@ -166,8 +167,7 @@ if [[ "${UPDATE_NEEDED}" == "1" || ! -d ${UPDATER_LOCATION} ]]; then
     log_say "RC Custom Updater Cloning ${GIT_URL} into ${TMP_DIR}"
     git clone "${GIT_URL}" "${TMP_DIR}"
     log_say "RC Custom Updater Checking out ${CURRENT_HASH}"
-    ORIG_PWD=$(pwd)
-    cd "${TMP_DIR}" && git reset --hard "${CURRENT_HASH}" && cd "${ORIG_PWD}"
+    git -C "${TMP_DIR}" reset --hard "${CURRENT_HASH}"
 
     log_say "RC Custom Updater Cleaning up .git folder"
     rm -rf "${TMP_DIR}/.git"
