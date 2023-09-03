@@ -7,6 +7,7 @@ log_say()
     SCRIPT_NAME=$(basename "$0")
     echo "${SCRIPT_NAME}: ${1}"
     logger "${SCRIPT_NAME}: ${1}"
+    echo "${SCRIPT_NAME}: ${1}" >> "/tmp/${SCRIPT_NAME}.log"
 }
 
 # Get the name of the script without the path
